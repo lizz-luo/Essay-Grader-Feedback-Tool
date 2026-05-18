@@ -1,6 +1,6 @@
 import streamlit as st
 from datetime import datetime
-import openai
+from groq import Groq
 
 # 網頁基本設定
 st.set_page_config(page_title="Essay Grader & Feedback Tool / 作文批改與反饋工具", layout="wide")
@@ -8,7 +8,7 @@ st.set_page_config(page_title="Essay Grader & Feedback Tool / 作文批改與反
 st.title("📝 英文作文自助批改與反饋工具")
 st.markdown("---")
 
-# 介面佈局：左側為主體輸入區，右側為 API 設置與提交區
+# 介面佈局：左側為主體輸入區，右側為提交區
 col1, col2 = st.columns([2, 1])
 
 with col1:
@@ -22,10 +22,8 @@ with col1:
         student_id = st.text_input("學號 / Student ID")
 
     st.subheader("2. 你的作文 / Your Essay")
-    # 文字框：利用 Streamlit 原生的重新渲染機制來實現實時字數統計
     essay_text = st.text_area("請在此貼上你的作文 / Paste your essay here：", height=300)
     
-    # 實時計算字數（以英文單詞空格分割）
     word_count = len([w for w in essay_text.split() if w.strip()])
     st.markdown(f"**字數統計 / Word Count:** {word_count} words")
 
@@ -40,16 +38,18 @@ with col1:
     custom_question = st.text_input("向 AI 提問（例如：Does my advice sound helpful?）：")
 
 with col2:
-    st.subheader("⚙️ API 設定 / API Configuration")
-    api_key = st.text_input("OpenAI API Key (輸入以使用)", type="password")
-    
+    # 提示學生系統已自動連接
+    st.info("💡 系統已自動連接老師的 AI 批改伺服器，你只需填寫左側資料並點擊下方按鈕即可。")
     st.markdown("---")
     submit_button = st.button("提交並獲取反饋 / Submit for Feedback", use_container_width=True)
 
 # 點擊提交後的處理邏輯
 if submit_button:
+    # 從 Streamlit Secrets 讀取 API Key
+    api_key = st.secrets.get("GROQ_API_KEY", "")
+    
     if not api_key:
-        st.error("請輸入你的 OpenAI API Key。")
+        st.error("系統未設定 API Key，請聯繫老師。 / API Key is not configured in the system. Please contact your teacher.")
     elif not student_name or not student_class or not student_id:
         st.error("請填寫完整的姓名、班級和學號。")
     elif not essay_text.strip():
@@ -57,10 +57,9 @@ if submit_button:
     else:
         with st.spinner("正在分析你的作文... / Analyzing your essay..."):
             try:
-                # 初始化 OpenAI 客戶端
-                client = openai.OpenAI(api_key=api_key)
+                # 初始化 Groq 客戶端
+                client = Groq(api_key=api_key)
                 
-                # 系統提示詞：定義 AI 角色並加入防作弊機制
                 system_prompt = """You are an encouraging but strict English teacher grading a student's essay. 
 Your goals:
 1. Provide feedback based ONLY on the requested focus areas.
@@ -77,9 +76,9 @@ Custom Question: {custom_question if custom_question else 'None'}
 Student's Essay:
 {essay_text}
 """
-                # 呼叫 OpenAI API
+                # 呼叫 Groq API
                 response = client.chat.completions.create(
-                    model="gpt-4o",
+                    model="llama-3.3-70b-versatile",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
@@ -93,7 +92,6 @@ Student's Essay:
                 st.markdown("### 批改反饋 / Feedback")
                 st.write(feedback)
                 
-                # 準備學習日誌供下載
                 log_data = f"""=== 學習日誌 / Learning Log ===
 日期 / Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 姓名 / Name: {student_name}
@@ -112,7 +110,6 @@ Student's Essay:
 --- AI 反饋 / AI Feedback ---
 {feedback}
 """
-                # 提供下載按鈕
                 st.download_button(
                     label="📥 下載學習日誌 / Download Learning Log (TXT)",
                     data=log_data,
